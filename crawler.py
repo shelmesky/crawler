@@ -155,22 +155,12 @@ def get_keyword_detail_page(keyword):
     pool.add(pool.spawn(get_detail_page, keywords))
 
 
-p_pool = multiprocessing.Pool(2)
-
-
 [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in keywords_map.keys()]
 [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in relative_map.keys()]
 
+[pool.add(pool.spawn(get_relative_detail_page, key)) for key in keywords_map.keys()]
+[pool.add(pool.spawn(get_relative_detail_page, key)) for key in relative_map.keys()]
 
-def get_k(pool, maps):
-    [pool.add(pool.spawn(get_relative_detail_page, key)) for key in maps.keys()]
-
-p_pool.apply_async(get_k, pool, keywords_map)
-p_pool.apply_async(get_k, pool, relative_map)
-p_pool.join()
-
-#[pool.add(pool.spawn(get_relative_detail_page, key)) for key in keywords_map.keys()]
-#[pool.add(pool.spawn(get_relative_detail_page, key)) for key in relative_map.keys()]
 pool.join()
 
 print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
