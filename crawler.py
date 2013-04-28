@@ -129,12 +129,17 @@ pool.add(gevent.spawn(get_relative_list, master_key))
 pool.join()
 
 ##############################################################################
+pool = Pool(size=256)
 
+count = 1
 def get_detail_page(keys_list):
-    for i in keys_list: 
+    global count
+    for i in keys_list:
+        print count
         hostname, url, body = get_query_url(i)
         #pool.add(pool.spawn(get_data, hostname, url=url, body=body))
         get_data(hostname, url=url, body=body)
+        count += 1
 
 
 final_keywords = dict()
@@ -145,6 +150,7 @@ def get_relative_detail_page(keyword):
     final_keywords[keyword + "--relative"]= relative.keys()
 
     pool.add(pool.spawn(get_detail_page, relative))
+    #get_detail_page(relative)
 
 def get_keyword_detail_page(keyword):
     hostname, url, body = get_keyword_list_url(keyword)
@@ -153,6 +159,7 @@ def get_keyword_detail_page(keyword):
     final_keywords[keyword + "--keyword"]= keywords.keys()
     
     pool.add(pool.spawn(get_detail_page, keywords))
+    #get_detail_page(keywords)
 
 
 [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in keywords_map.keys()]
