@@ -119,13 +119,9 @@ def get_relative_list(keyword):
     relative_map = get_relative_list_data(data)
 
 
-count = 1
-def get_detail_page(keys_list):
-    global count
-    for i in keys_list:
-        hostname, url, body = get_query_url(i)
-        get_data(hostname, url=url, body=body)
-        count += 1
+def get_detail_page(keyword):
+    hostname, url, body = get_query_url(keyword)
+    get_data(hostname, url=url, body=body)
 
 
 final_keywords = dict()
@@ -133,17 +129,13 @@ def get_relative_detail_page(keyword):
     hostname, url, body = get_query_url(keyword)
     data = get_data(hostname, url=url, body=body)
     relative = get_relative_list_data(data)
-    final_keywords[keyword + "--relative"]= relative.keys()
 
-    pool.add(pool.spawn(get_detail_page, relative))
-
-def get_keyword_detail_page(keyword):
     hostname, url, body = get_keyword_list_url(keyword)
     data = get_data(hostname, url=url, body=body)
     keywords = get_keyword_list_data(data)
-    final_keywords[keyword + "--keyword"]= keywords.keys()
     
-    pool.add(pool.spawn(get_detail_page, keywords))
+    final_keywords[keyword] = relative.keys() + keywords.keys()
+    
 
 
 if __name__ == '__main__':
@@ -158,21 +150,7 @@ if __name__ == '__main__':
     pool.add(gevent.spawn(get_relative_list, master_key))
     pool.join()
     
-
-    [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in keywords_map.keys()]
-    [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in relative_map.keys()]
-    pool.join()
-    time.sleep(0.5)
-
-    [pool.add(pool.spawn(get_relative_detail_page, key)) for key in keywords_map.keys()]
-    pool.join()
-    time.sleep(1)
-
-    [pool.add(pool.spawn(get_relative_detail_page, key)) for key in relative_map.keys()]
-
-    pool.join()
-    
-    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values())/2)
+    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
 
     end = time.time()
 
