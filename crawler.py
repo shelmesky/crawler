@@ -22,7 +22,6 @@ reload(sys)
 sys.setdefaultencoding('UTF-8')
 
 
-master_key = sys.argv[1] 
 keywords_map = None
 relative_map = None
 ip_pool = ["180.153.152.37", "180.153.152.43", "180.153.152.44"]
@@ -118,18 +117,6 @@ def get_relative_list(keyword):
     global relative_map
     relative_map = get_relative_list_data(data)
 
-##############################################################################
-
-start = time.time()
-
-pool = Pool(size=512)
-
-pool.add(gevent.spawn(get_keyword_list, master_key))
-pool.add(gevent.spawn(get_relative_list, master_key))
-pool.join()
-
-##############################################################################
-pool = Pool(size=256)
 
 count = 1
 def get_detail_page(keys_list):
@@ -137,7 +124,6 @@ def get_detail_page(keys_list):
     for i in keys_list:
         print count
         hostname, url, body = get_query_url(i)
-        #pool.add(pool.spawn(get_data, hostname, url=url, body=body))
         get_data(hostname, url=url, body=body)
         count += 1
 
@@ -150,7 +136,6 @@ def get_relative_detail_page(keyword):
     final_keywords[keyword + "--relative"]= relative.keys()
 
     pool.add(pool.spawn(get_detail_page, relative))
-    #get_detail_page(relative)
 
 def get_keyword_detail_page(keyword):
     hostname, url, body = get_keyword_list_url(keyword)
@@ -159,62 +144,36 @@ def get_keyword_detail_page(keyword):
     final_keywords[keyword + "--keyword"]= keywords.keys()
     
     pool.add(pool.spawn(get_detail_page, keywords))
-    #get_detail_page(keywords)
 
 
-[pool.add(pool.spawn(get_keyword_detail_page, key)) for key in keywords_map.keys()]
-[pool.add(pool.spawn(get_keyword_detail_page, key)) for key in relative_map.keys()]
+if __name__ == '__main__':
+    master_key = sys.argv[1]
+    
+    start = time.time()
+    
+    pool = Pool(size=512)
+    
+    pool.add(gevent.spawn(get_keyword_list, master_key))
+    pool.add(gevent.spawn(get_relative_list, master_key))
+    pool.join()
+    
 
-[pool.add(pool.spawn(get_relative_detail_page, key)) for key in keywords_map.keys()]
-[pool.add(pool.spawn(get_relative_detail_page, key)) for key in relative_map.keys()]
+    [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in keywords_map.keys()]
+    [pool.add(pool.spawn(get_keyword_detail_page, key)) for key in relative_map.keys()]
+    [pool.add(pool.spawn(get_relative_detail_page, key)) for key in keywords_map.keys()]
+    [pool.add(pool.spawn(get_relative_detail_page, key)) for key in relative_map.keys()]
 
-pool.join()
+    pool.join()
+    
+    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
+    
+    end = time.time()
+    
+    print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
+    
+    count = 1
+    for k,v in final_keywords.items():
+        for i in v:
+            count += 1
+    print count
 
-print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
-
-end = time.time()
-
-print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
-
-count = 1
-for k,v in final_keywords.items():
-    #print k
-    for i in v:
-        #print i
-        count += 1
-    #print
-    #print
-print count
-
-sys.exit(0)
-
-
-
-##############################################################################
-
-
-pool = Pool(size=512)
-
-def get_final_page(keyword):
-    hostname, url, body = get_query_url(keyword)
-    data = get_data(hostname, url=url, body=body)
-
-
-def start_final_task():
-    i = 1
-    for values in final_keywords.values():
-        for value in values:
-            pool.add(gevent.spawn(get_final_page, value))
-            i+=1
-    return i
-
-count = start_final_task()
-
-print "根据 %s 个关键词，最终得到 %s 个关键词" % (len(final_keywords.values()), count)
-print "正在抓取 %s 个页面的信息" % count
-
-pool.join()
-
-end = time.time()
-
-print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
