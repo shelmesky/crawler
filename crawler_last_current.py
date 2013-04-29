@@ -25,7 +25,8 @@ sys.setdefaultencoding('UTF-8')
 
 keywords_map = None
 relative_map = None
-ip_pool = ["180.153.152.37", "180.153.152.43", "180.153.152.44"]
+#ip_pool = ["180.153.152.37", "180.153.152.66"]
+#ip_pool = ["180.153.152.37", "180.153.152.66", "180.153.152.67"]
 ip_pool = ["180.153.152.37"]
 
 def get_random_obj(obj):
@@ -79,9 +80,14 @@ class GetConn(object):
 def get_data(hostname, method="GET", url=None, body=None):
     #conn = httplib.HTTPConnection(hostname)
     conn = httplib.HTTPConnection(hostname, source_address=(get_random_obj(ip_pool), 0))
-    headers = {"User-Agent": "spider"}
+    #headers = {"User-Agent": "spider"}
+    headers = {'Accept-Language':'zh-cn','Accept-Encoding': 'gzip, deflate','User-Agent': 'Mozilla/4.0 (compatible; MSIE 6.0;Windows NT 5.0)','Connection':' Keep-Alive' } 
     conn.request(method, url + "?" + body, headers=headers)
-    data = conn.getresponse().read()
+    if hostname == "s.taobao.com":
+        data = conn.getresponse().read()
+    else:
+        data = conn.getresponse().read()
+    conn.close()
     return data
 
 
@@ -125,7 +131,7 @@ def get_detail_page(keyword):
 
 
 final_keywords = dict()
-def get_relative_detail_page(keyword):
+def get_final_keywords(keyword):
     hostname, url, body = get_query_url(keyword)
     data = get_data(hostname, url=url, body=body)
     relative = get_relative_list_data(data)
@@ -150,15 +156,50 @@ if __name__ == '__main__':
     pool.add(gevent.spawn(get_relative_list, master_key))
     pool.join()
     
-    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
 
-    end = time.time()
+    ##########################################################
+
+    [pool.add(pool.spawn(get_final_keywords, key)) for key in keywords_map.keys()]
+    [pool.add(pool.spawn(get_final_keywords, key)) for key in relative_map.keys()]
+    pool.join()
+
+    ##########################################################
+
+    def decode_print(v):
+        return
+        try:
+            print v.decode('GBK')
+        except:
+            print v
 
     count = 1
+    last_list = list()
     for k,v in final_keywords.items():
+        decode_print(k)
+        #print "-" * 10
         for i in v:
+            decode_print(i)
+            last_list.append(i)
             count += 1
-    
-    print "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values())/2, count)
+        #print
+        #print
 
+    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
+    
+    print "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
+
+    ##########################################################
+
+    split_size = 18
+    f = lambda i,s: [i[x:x+s] for x in xrange(0, len(i), s)]
+    splited = f(last_list, split_size)
+
+    for i in splited:
+                pool = Pool(split_size)
+                [pool.add(pool.spawn(get_detail_page, key)) for key in i]
+                pool.join()
+
+    ##########################################################
+
+    end = time.time()
     print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
