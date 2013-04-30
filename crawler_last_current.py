@@ -1,16 +1,18 @@
-#!/usr/bin/python
-#--encoding: utf-8--
-
-import time
-import re
-import httplib
-import urllib
-import random
-import os
-try:
-    import simplejson as json
+#!/usr/bin/python                                                                                                                                                                         
+#--encoding: utf-8--                                                                                                                                                                      
+                                                                                                                                                                                          
+import time                                                                                                                                                                               
+import re                                                                                                                                                                                 
+import httplib                                                                                                                                                                            
+import urllib                                                                                                                                                                             
+import random                                                                                                                                                                             
+import os                                                                                                                                                                                 
+try:                                                                                                                                                                                      
+    import simplejson as json                                                                                                                                                             
 except ImportError:
     import json
+import threading
+import Queue
 
 import gevent
 from gevent import monkey
@@ -28,6 +30,8 @@ ip_pool = ["180.153.152.37", "180.153.152.66", "180.153.152.67"]
 #ip_pool = ["180.153.152.37"]
 regex_relative = re.compile("relatedSearch.*search\?q=(.*)&")
 regex_keywords = re.compile("\((.*)\)")
+regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb3\\xc9\\xbd\\xbb</div>')
+queue = Queue.Queue()
 
 
 def get_random_obj(obj):
@@ -64,7 +68,7 @@ def get_query_url(query):
 def get_data(hostname, method="GET", url=None, body=None):
     conn = httplib.HTTPConnection(hostname, source_address=(get_random_obj(ip_pool), 0))
     headers = {'Accept-Language':'zh-cn','Accept-Encoding': 'gzip, deflate', \
-			'User-Agent': 'Mozilla/4.0 (compatible; MSIE 6.0;Windows NT 5.0)','Connection':' Keep-Alive' } 
+                        'User-Agent': 'Mozilla/4.0 (compatible; MSIE 6.0;Windows NT 5.0)','Connection':' Keep-Alive' } 
     conn.request(method, url + "?" + body, headers=headers)
     data = conn.getresponse().read()
     conn.close()
@@ -103,11 +107,6 @@ def get_relative_list(keyword):
     relative_map = get_relative_list_data(data)
 
 
-def get_detail_page(keyword):
-    hostname, url, body = get_query_url(keyword)
-    get_data(hostname, url=url, body=body)
-
-
 final_keywords = dict()
 def get_final_keywords(keyword):
     hostname, url, body = get_query_url(keyword)
@@ -121,13 +120,33 @@ def get_final_keywords(keyword):
     final_keywords[keyword] = relative.keys() + keywords.keys()
 
 
+final_dealing = dict()
+def get_detail_page(keyword):
+    hostname, url, body = get_query_url(keyword)
+    data = get_data(hostname, url=url, body=body)
+    queue.put_nowait(data)
+
+class CalDealing(threading.Thread):
+    def __init__(self, queue):
+        super(CalDealing, self).__init__()
+        self.queue = queue
+    
+    def run(self):
+        while 1:
+            data = self.queue.get()
+            final_dealing[keyword] = sum(map(int, regex_dealing.findall(data)))
+
+
 if __name__ == '__main__':
     print "PID: ", os.getpid()
     master_key = sys.argv[1]
     f = lambda i,s: [i[x:x+s] for x in xrange(0, len(i), s)]
-    split_size = 16
+    split_size = 15
     
     start = time.time()
+    
+    thread_dealing = CalDealing(queue)
+    thread_dealing.start()
     
     pool = Pool(size=32)
     
@@ -184,4 +203,7 @@ if __name__ == '__main__':
 
     end = time.time()
     print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
+    
+    thread_dealing.join()
+    print final_dealing
 
