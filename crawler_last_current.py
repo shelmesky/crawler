@@ -124,7 +124,7 @@ final_dealing = dict()
 def get_detail_page(keyword):
     hostname, url, body = get_query_url(keyword)
     data = get_data(hostname, url=url, body=body)
-    queue.put_nowait(data)
+    queue.put_nowait((keyword, data))
 
 class CalDealing(threading.Thread):
     def __init__(self, queue):
@@ -132,16 +132,21 @@ class CalDealing(threading.Thread):
         self.queue = queue
     
     def run(self):
+        i=1
         while 1:
-            data = self.queue.get()
-            final_dealing[keyword] = sum(map(int, regex_dealing.findall(data)))
+            keyword, data = self.queue.get(True)
+            if keyword == None: break
+            i+=1
+            total = sum(map(int, regex_dealing.findall(data)))
+            #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = total
+            final_dealing[urllib.unquote(keyword)] = total
 
 
 if __name__ == '__main__':
     print "PID: ", os.getpid()
     master_key = sys.argv[1]
     f = lambda i,s: [i[x:x+s] for x in xrange(0, len(i), s)]
-    split_size = 15
+    split_size = 16
     
     start = time.time()
     
@@ -169,9 +174,9 @@ if __name__ == '__main__':
 
     def decode_print(v):
         try:
-            print v.decode('GBK')
+            return v.decode('GBK')
         except:
-            print v
+            return v
 
     count = 1
     last_list = list()
@@ -185,9 +190,12 @@ if __name__ == '__main__':
         #print
         #print
 
+    last_list = {}.fromkeys(last_list).keys() 
+
     print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
     
     print "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
+    print "去除重复项后共 %s 个关键词" % len(last_list)
 
     ##########################################################
 
@@ -199,11 +207,15 @@ if __name__ == '__main__':
                 [pool.add(pool.spawn(get_detail_page, key)) for key in i]
                 pool.join()
 
+    queue.put((None, None))
     ##########################################################
 
     end = time.time()
     print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
     
     thread_dealing.join()
-    print final_dealing
+    final_dealing = sorted(final_dealing.items(), key=lambda x: x[1], reverse=True)
+    for i in final_dealing:
+        print decode_print(i[0]) + ":" + str(i[1])
+    print len(final_dealing)
 
