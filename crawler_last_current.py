@@ -28,6 +28,7 @@ relative_map = None
 #ip_pool = ["180.153.152.37", "180.153.152.66"]
 #ip_pool = ["180.153.152.37", "180.153.152.66", "180.153.152.67"]
 ip_pool = ["180.153.152.37"]
+regex = re.compile("relatedSearch.*search\?q=(.*)&", data)
 
 def get_random_obj(obj):
     return random.choice(obj)
@@ -109,12 +110,9 @@ def get_keyword_list(keyword):
 
 def get_relative_list_data(data):
     temp = dict()
-    d = pq(data)
-    r = [i.values() for i in d("#J_relative ul li a")]
+    r = regex.findall(data)
     for i in r:
-        parms = urlparse.urlparse(i[1])
-        key = urlparse.parse_qs(parms.query, keep_blank_values=1)['q'][0]
-        temp[key] = None
+        temp[i] = None
     return temp
     
     
