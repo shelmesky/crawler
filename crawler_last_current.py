@@ -14,9 +14,11 @@ except ImportError:
 import threading
 import Queue
 
+from prettytable import PrettyTable
 import gevent
 from gevent import monkey
 from gevent.pool import Pool
+from prettytable import PrettyTable
 
 monkey.patch_all()
 
@@ -30,6 +32,7 @@ ip_pool = ["180.153.152.37", "180.153.152.66", "180.153.152.67"]
 #ip_pool = ["180.153.152.37"]
 regex_relative = re.compile("relatedSearch.*search\?q=(.*)&")
 regex_keywords = re.compile("\((.*)\)")
+regex_goods = re.compile('result-info">(\d+)')
 regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb3\\xc9\\xbd\\xbb</div>')
 queue = Queue.Queue()
 
@@ -137,9 +140,13 @@ class CalDealing(threading.Thread):
             keyword, data = self.queue.get(True)
             if keyword == None: break
             i+=1
-            total = sum(map(int, regex_dealing.findall(data)))
-            #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = total
-            final_dealing[urllib.unquote(keyword)] = total
+            # dealing_total: 前40个商品的销售总量
+            # goods_amount: 每个关键词的宝贝总数
+            dealing_total = sum(map(int, regex_dealing.findall(data)))
+            goods_amount = regex_goods.findall(data)
+            goods_amount = goods_amount[0] if goods_amount else 0
+            #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = dealing_total
+            final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
 
 
 if __name__ == '__main__':
@@ -174,9 +181,9 @@ if __name__ == '__main__':
 
     def decode_print(v):
         try:
-            return v.decode('GBK')
+            return v.decode('GBK').encode('UTF-8')
         except:
-            return v
+            return v.encode('UTF-8')
 
     count = 1
     last_list = list()
@@ -214,8 +221,13 @@ if __name__ == '__main__':
     print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
     
     thread_dealing.join()
-    final_dealing = sorted(final_dealing.items(), key=lambda x: x[1], reverse=True)
+    final_dealing = sorted(final_dealing.items(), key=lambda x: x[1][0], reverse=True)
+    t = PrettyTable(["ID", "名称", "销售总量", "宝贝总量"])
+    t.align[1] = 'l'
+    t.align[2] = 'r'
+    t.align[3] = 'r'
+    t.left_padding = 1
     for i in final_dealing:
-        print decode_print(i[0]) + ":" + str(i[1])
-    print len(final_dealing)
+        t.add_row([final_dealing.index(i), decode_print(i[0]), str(i[1][0]), str(i[1][1])])
+    print t
 
