@@ -18,6 +18,7 @@ from prettytable import PrettyTable
 import gevent
 from gevent import monkey
 from gevent.pool import Pool
+from gevent import wsgi
 from prettytable import PrettyTable
 
 monkey.patch_all()
@@ -29,12 +30,13 @@ sys.setdefaultencoding('UTF-8')
 keywords_map = None
 relative_map = None
 ip_pool = ["180.153.152.37", "180.153.152.66", "180.153.152.67"]
-#ip_pool = ["180.153.152.37"]
+ip_pool = ["180.153.152.37"]
 regex_relative = re.compile("relatedSearch.*search\?q=(.*)&")
 regex_keywords = re.compile("\((.*)\)")
 regex_goods = re.compile('result-info">(\d+)')
 regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb3\\xc9\\xbd\\xbb</div>')
 queue = Queue.Queue()
+running = False
 
 
 def get_random_obj(obj):
@@ -61,7 +63,7 @@ def get_query_url(query):
         ssid = "s5-e",
         search_type = "item",
         sourceId = "tb.index",
-        initiative_id = "tbindexz_20130426"
+        initiative_id = "tbindexz_20130501"
     )
     hostname = "s.taobao.com"
     url = "/search"
@@ -70,8 +72,9 @@ def get_query_url(query):
 
 def get_data(hostname, method="GET", url=None, body=None):
     conn = httplib.HTTPConnection(hostname, source_address=(get_random_obj(ip_pool), 0))
-    headers = {'Accept-Language':'zh-cn','Accept-Encoding': 'gzip, deflate', \
-                        'User-Agent': 'Mozilla/4.0 (compatible; MSIE 6.0;Windows NT 5.0)','Connection':' Keep-Alive' } 
+    headers = {"User-Agent": "curl 7.22.0"}
+    headers = {'Accept-Language':'zh-cn', \
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.22 (KHTML, like Gecko) Ubuntu Chromium/25.0.1364.160 Chrome/25.0.1364.160 Safari/537.22'} 
     conn.request(method, url + "?" + body, headers=headers)
     data = conn.getresponse().read()
     conn.close()
@@ -149,11 +152,11 @@ class CalDealing(threading.Thread):
             final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
 
 
-if __name__ == '__main__':
-    print "PID: ", os.getpid()
-    master_key = sys.argv[1]
+def main(main_keyword):
+    running = True
+    master_key = main_keyword
     f = lambda i,s: [i[x:x+s] for x in xrange(0, len(i), s)]
-    split_size = 16
+    split_size = 5
     
     start = time.time()
     
@@ -188,21 +191,11 @@ if __name__ == '__main__':
     count = 1
     last_list = list()
     for k,v in final_keywords.items():
-        #decode_print(k)
-        #print "-" * 10
         for i in v:
-            #decode_print(i)
             last_list.append(i)
             count += 1
-        #print
-        #print
 
     last_list = {}.fromkeys(last_list).keys() 
-
-    print "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (master_key, len(final_keywords.values()))
-    
-    print "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
-    print "去除重复项后共 %s 个关键词" % len(last_list)
 
     ##########################################################
 
@@ -218,8 +211,8 @@ if __name__ == '__main__':
     ##########################################################
 
     end = time.time()
-    print "全部完成，整个过程消耗时间：%.2f 秒" % float(end-start)
     
+    global final_dealing
     thread_dealing.join()
     final_dealing = sorted(final_dealing.items(), key=lambda x: x[1][0], reverse=True)
     t = PrettyTable(["ID", "名称", "销售总量", "宝贝总量"])
@@ -229,5 +222,36 @@ if __name__ == '__main__':
     t.left_padding = 1
     for i in final_dealing:
         t.add_row([final_dealing.index(i), decode_print(i[0]), str(i[1][0]), str(i[1][1])])
-    print t
+    running = False
+    return count, last_list, end-start, t
+
+
+def not_found(start_response):
+    start_response('404 Not Found', [('Content-Type', 'text/html')])
+    return ['<h1>Not Found</h1>']
+
+
+def main_app(env, start_response):
+    path = env['PATH_INFO']
+    url_query = re.compile('/query/(.*)')
+    if path.startswith("/query"):
+        keyword = url_query.findall(path)
+        if not keyword:
+            return not_found(start_response)
+        
+        count, last_list, times, t = main(keyword[0])
+        tip1 = "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (keyword, len(final_keywords.values()))
+        tip2 = "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
+        tip3 = "去除重复项后共 %s 个关键词" % len(last_list)
+        tip4 = "全部完成，整个过程消耗时间：%.2f 秒" % float(times)
+        
+        start_response('200 OK', [('Content-Type', 'text/html')])
+        
+        return ["%s<br />%s<br />%s<br />%s<br /><pre>%s</pre>" % (tip1, tip2, tip3, tip4, t)]
+    else:                                                                                                                  
+        return not_found(start_response)
+
+port = 8088
+print "Server listening on TCP:%s" % port
+wsgi.WSGIServer(('', port), main_app).serve_forever()
 
