@@ -14,14 +14,17 @@ except ImportError:
 import threading
 import Queue
 
-from prettytable import PrettyTable
 import gevent
 from gevent import monkey
 from gevent.pool import Pool
 from gevent import wsgi
 from gevent.event import Event
+from gevent import socket
+
 from uuid import uuid4
 from prettytable import PrettyTable
+
+import server_settings
 
 monkey.patch_all()
 
@@ -39,6 +42,44 @@ regex_goods = re.compile('result-info">(\d+)')
 regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb3\\xc9\\xbd\\xbb</div>')
 queue = Queue.Queue()
 running = False
+event_pool = dict()
+
+
+def create_conn(server, port):
+    sock = socket.create_connection((server,port), timeout=3)
+    return sock
+
+
+def send_task(sock, task):
+    task_length = len(task)
+    sock.sendall(task)
+
+
+class EventManager(object):
+    @staticmethod
+    def create_event():
+        ev_id = uuid4()
+        ev = Event()
+        event_pool[ev_id] = dict()
+        event_pool[ev_id]['ev'] = ev
+        event_pool[ev_id]['count'] = 0
+        return ev, ev_id
+    
+    @staticmethod
+    def get_count(ev_id):
+        item = event_pool[ev_id]
+        count = item['count']
+        return count
+    
+    @staticmethod
+    def get_ev(ev_id):
+        item = event_pool[ev_id]
+        ev = item['ev']
+        return ev
+    
+    @staticmethod
+    def increment_count(ev_id):
+        event_pool[ev_id]['count'] += 1
 
 
 def get_random_obj(obj):
@@ -236,6 +277,7 @@ def not_found(start_response):
 def main_app(env, start_response):
     path = env['PATH_INFO']
     url_query = re.compile('/query/(.*)')
+    url_result= re.compile('/result/(.*)')
     if path.startswith("/query"):
         keyword = url_query.findall(path)
         if not keyword:
@@ -250,6 +292,8 @@ def main_app(env, start_response):
         start_response('200 OK', [('Content-Type', 'text/html')])
         
         return ["%s<br />%s<br />%s<br />%s<br /><pre>%s</pre>" % (tip1, tip2, tip3, tip4, t)]
+    elif path.startswith("/result"):
+        post_body = env['wsgi.input'].read()
     else:                                                                                                                  
         return not_found(start_response)
 
