@@ -19,6 +19,8 @@ import gevent
 from gevent import monkey
 from gevent.pool import Pool
 from gevent import wsgi
+from gevent.event import Event
+from uuid import uuid4
 from prettytable import PrettyTable
 
 monkey.patch_all()
