@@ -138,14 +138,14 @@ class TCPHandler(object):
         """
         处理消息主体
         """
-        headers ={}
+        response_headers ={}
         body_length = len(body)
         response_headers.setdefault("type", "response")
         response_headers.setdefault("content-length", body_length)
         response_headers = self.make_headers(response_headers)
-        self.stream.write(headers)
-        response = self.callback(body)
-        self.stream.write(response)
+        self.stream.write(response_headers)
+        response_body = self.callback(body)
+        self.stream.write(response_body)
         self.clear()
     
     def parse_headers(self, data):
