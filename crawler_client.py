@@ -6,6 +6,8 @@ import gevent
 from gevent.server import StreamServer
 from gevent import httplib
 from collections import deque
+from gevent.pool import Pool
+from gevent.timeout import Timeout
 
 
 class TCPHandler(object):
@@ -16,6 +18,7 @@ class TCPHandler(object):
         self.read_buf = deque()
         self.read_buf_size = 0
         self.closed = False
+        self.read_body_timeout = 3
         self.request()
     
     def handle_headers(self, headers):
@@ -26,15 +29,24 @@ class TCPHandler(object):
             raise RuntimeError("Invalid content-length.")
         
         if content_length:
-            while True:
-                body = self.buffer_get_size(content_length)
-                if body:
-                    self.handle_body(body)
-                    break
-                
-                if not self.read_to_buffer():
-                    self.close()
-                    break
+            timeout = Timeout.start_new(self.read_body_timeout)
+            try:
+                try:
+                    while True:
+                        body = self.buffer_get_size(content_length)
+                        if body:
+                            gevent.spawn(self.handle_body, body)
+                            break
+                        
+                        if not self.read_to_buffer():
+                            self.close()
+                            break
+                        
+                except Timeout:
+                    self.clear()
+                    print "Read body out of %s seconds." % self.read_body_timeout
+            finally:
+                timeout.cancel()
     
     def handle_body(self, body):
         print self.headers
@@ -153,7 +165,9 @@ if __name__ == '__main__':
     except IndexError:
         port = 9001
     print "Server listen on port: ", port
-    server = StreamServer(("0.0.0.0", port), stream_handler)
+    pool = Pool(1024)
+    server = StreamServer(("0.0.0.0", port), stream_handler,
+            backlog=128, spawn=pool)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
