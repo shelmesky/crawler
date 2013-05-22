@@ -1,5 +1,11 @@
 #!/usr/bin/python
 # -- encoding:utf-8 --
+#
+# TCP服务器，接受文本协议
+# 协议的头部大小为<=4K
+# 协议头部的字段由\r\n分割，头部和主体之间由\r\n\r\n分割
+# 协议格式模拟了HTTP协议，取消了HTTP的协议头概念，直接将请求主体当作协议头
+# HTTP的请求表单内容或者服务器返回内容当作请求主体
 
 import sys
 import gevent
@@ -11,6 +17,9 @@ from gevent.timeout import Timeout
 
 
 class IOStream(object):
+    """
+    为socket增加read_buffer和处理异常等
+    """
     def __init__(self, sock, address):
         self.sock = sock
         self.fileobj = sock.makefile()
@@ -20,9 +29,11 @@ class IOStream(object):
         self.closed = False
     
     def read_to_buffer(self):
-        # readline()是调用patch之后标准库中的socket模块的_fileobj类的readline
-        # 原理是每一次recv(1)，并检测行结束符
-        # sock.recv()是调用C的socket模块 是syscall
+        """
+        readline()是调用patch之后标准库中的socket模块的_fileobj类的readline
+        原理是每一次recv(1)，并检测行结束符
+        sock.recv()是调用C的socket模块 是syscall
+        """
         #data = self.fileobj.readline()
         if not self.closed:
             data = self.sock.recv(4096)
@@ -42,15 +53,25 @@ class IOStream(object):
         self.closed = True
     
     def buffer_get_size(self, size):
+        """
+        从缓存读取指定大小的字节
+        如果达不到要求，则从socket读取到buffer
+        """
         while True:
             if self.read_buf and self.read_buf_size >= size:
                 return self._consume(size)
             
+            # 如果从socket读取失败，说明连接已关闭
+            # 则跳出循环
             if not self.read_to_buffer():
                 break
         return False
     
     def buffer_get_delimiter(self, delimiter):
+        """
+        从缓存读取，并查找第一个分隔符
+        如果达不到要求，则从socket读取到buffer
+        """
         while True:
             if self.read_buf:
                 loc = self.read_buf[0].find(delimiter)
@@ -61,6 +82,8 @@ class IOStream(object):
                     break
                 _double_prefix(self.read_buf)
                 
+            # 如果从socket读取失败，说明连接已关闭
+            # 则跳出循环
             if not self.read_to_buffer():
                 break
         return False
@@ -77,6 +100,9 @@ class IOStream(object):
 
 
 class TCPHandler(object):
+    """
+    处理每个连接的类
+    """
     def __init__(self, sock, address, callback=None):
         self.stream = IOStream(sock, address)
         self.timeout = 3
@@ -84,12 +110,17 @@ class TCPHandler(object):
         self.request()
     
     def handle_headers(self, headers):
+        """
+        处理消息头部
+        """
         content_length = headers.get("content-length", 0)
         try:
             content_length = int(content_length)
         except ValueError:
             raise RuntimeError("Invalid content-length.")
         
+        # 如果请求包含content-length字段
+        # 继续读取后续的body
         if content_length:
             timeout = Timeout.start_new(self.timeout)
             try:
@@ -104,6 +135,9 @@ class TCPHandler(object):
                 timeout.cancel()
     
     def handle_body(self, body):
+        """
+        处理消息主体
+        """
         headers ={}
         body_length = len(body)
         response_headers.setdefault("type", "response")
@@ -115,6 +149,9 @@ class TCPHandler(object):
         self.clear()
     
     def parse_headers(self, data):
+        """
+        解析协议头，返回字典
+        """
         try:
             lines = data.splitlines()[:-1]
             headers = {}
@@ -127,12 +164,19 @@ class TCPHandler(object):
         return headers
     
     def make_headers(self, dicts):
+        """
+        将字典变为协议头
+        每个字段由\r\n结尾，所有字段最后再加上\r\n
+        """
         if not isinstance(dicts, dict):
             raise RuntimeError("Invalid headers.")
         f = lambda d: [str(k) + ": " + str(d[k]) + "\r\n"  for k in d]
         return "".join(f(dicts)) + "\r\n"
     
     def request(self):
+        """
+        循环处理请求，如果socket关闭，退出循环
+        """
         while True:
             if self.stream.closed:
                 return
