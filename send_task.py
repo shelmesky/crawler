@@ -1,17 +1,13 @@
-#!/usr/bin/python
-# -- encoding:utf-8 --
+#!/usr/bin/env python
+# --encoding: utf-8 --
 
-import sys
 import gevent
-from gevent.server import StreamServer
-from gevent import httplib
+from gevent import socket
 from collections import deque
-from gevent.pool import Pool
-from gevent.timeout import Timeout
 
 
 class IOStream(object):
-    def __init__(self, sock, address):
+    def __init__(self, sock, address=None):
         self.sock = sock
         self.fileobj = sock.makefile()
         self.address = address
@@ -35,12 +31,17 @@ class IOStream(object):
             return data_length
     
     def write(self, data):
-        self.sock.send(data)
+        return self.sock.send(data)
     
     def close(self):
         self.sock.close()
         self.closed = True
+        self.clear()
     
+    def clear(self):
+        self.read_buf.clear()
+        self.read_buf_size = 0
+
     def buffer_get_size(self, size):
         while True:
             if self.read_buf and self.read_buf_size >= size:
@@ -76,43 +77,47 @@ class IOStream(object):
         return self.read_buf.popleft()
 
 
-class TCPHandler(object):
-    def __init__(self, sock, address, callback=None):
-        self.stream = IOStream(sock, address)
-        self.timeout = 3
-        self.callback = callback
-        self.request()
+class SendTaskClient(object):
+    def __init__(self, host=None, port=9001):
+        self.host = host
+        self.port = port
+        self.connect_timeout = 3
+        sock = self.connect(self.host, self.port)
+        self.stream = IOStream(sock)
     
-    def handle_headers(self, headers):
-        content_length = headers.get("content-length", 0)
+    def connect(self, host, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.settimeout(self.connect_timeout)
+        self.sock.connect((self.host, self.port))
+        return self.sock
+    
+    def send_task(self, body):
+        body_length = len(body)
+        headers = {}
+        headers.setdefault("type", "request")
+        headers.setdefault("content-length", body_length)
+        headers = self.make_headers(headers)
+        self.stream.write(headers)
+        self.stream.write(body)
+    
+    def recv_response(self):
+        response = self.stream.buffer_get_delimiter("\r\n\r\n")
+        response_headers = self.parse_headers(response)
+        content_length = response_headers.get("content-length", 0)
         try:
             content_length = int(content_length)
         except ValueError:
             raise RuntimeError("Invalid content-length.")
-        
         if content_length:
-            timeout = Timeout.start_new(self.timeout)
-            try:
-                try:
-                    body = self.stream.buffer_get_size(content_length)
-                    if body:
-                        gevent.spawn(self.handle_body, body)
-                except Timeout:
-                    self.clear()
-                    print "Read body out of %s seconds." % self.timeout
-            finally:
-                timeout.cancel()
+            response_body = self.stream.buffer_get_size(content_length)
+            if response_body:
+                return response_body
     
-    def handle_body(self, body):
-        headers ={}
-        body_length = len(body)
-        response_headers.setdefault("type", "response")
-        response_headers.setdefault("content-length", body_length)
-        response_headers = self.make_headers(response_headers)
-        self.stream.write(headers)
-        response = self.callback(body)
-        self.stream.write(response)
-        self.clear()
+    def make_headers(self, dicts):
+        if not isinstance(dicts, dict):
+            raise RuntimeError("Invalid headers.")
+        f = lambda d: [str(k) + ": " + str(d[k]) + "\r\n"  for k in d]
+        return "".join(f(dicts)) + "\r\n"
     
     def parse_headers(self, data):
         try:
@@ -125,25 +130,6 @@ class TCPHandler(object):
             raise RuntimeError("Malformed request line")
         self.headers = headers
         return headers
-    
-    def make_headers(self, dicts):
-        if not isinstance(dicts, dict):
-            raise RuntimeError("Invalid headers.")
-        f = lambda d: [str(k) + ": " + str(d[k]) + "\r\n"  for k in d]
-        return "".join(f(dicts)) + "\r\n"
-    
-    def request(self):
-        while True:
-            if self.stream.closed:
-                return
-            data = self.stream.buffer_get_delimiter("\r\n\r\n")
-            if data:
-                #gevent.spawn(self.handle_request, data)
-                headers = self.parse_headers(data)
-                self.handle_headers(headers)
-    
-    def clear(self):
-        self.headres = None
 
 
 def _merge_prefix(deque, size):
@@ -170,25 +156,13 @@ def _double_prefix(deque):
     _merge_prefix(deque, new_len)
 
 
-def request_handler(data):
-    return data
-
-
-def stream_handler(sock, address):
-    TCPHandler(sock, address, request_handler)
-
-
 if __name__ == '__main__':
-    try:
-        port = sys.argv[1]
-    except IndexError:
-        port = 9001
-    print "Server listen on port: ", port
-    pool = Pool(1024)
-    server = StreamServer(("0.0.0.0", port), stream_handler,
-            backlog=128, spawn=pool)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print "Server exit..."
-        server.stop()
+    client = SendTaskClient(host="127.0.0.1")
+    for i in range(2):
+        client.send_task("test content here")
+        body = client.recv_response()
+        print body
+        #import time
+        #time.sleep(10)
+
+
