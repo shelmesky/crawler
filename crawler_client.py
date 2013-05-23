@@ -8,12 +8,17 @@
 # HTTP的请求表单内容或者服务器返回内容当作请求主体
 
 import sys
+import errno
 import gevent
 from gevent.server import StreamServer
 from gevent import httplib
 from collections import deque
 from gevent.pool import Pool
 from gevent.timeout import Timeout
+from cProfile import Profile as profile
+from pstats import Stats
+
+DEBUG = False
 
 
 class IOStream(object):
@@ -36,7 +41,12 @@ class IOStream(object):
         """
         #data = self.fileobj.readline()
         if not self.closed:
-            data = self.sock.recv(4096)
+            try:
+                data = self.sock.recv(4096)
+            except error, e:
+                if e[0] == errno.ECONNRESET:
+                    self.close()
+                    return
             if not data:
                 self.close()
                 return
@@ -214,12 +224,25 @@ def _double_prefix(deque):
     _merge_prefix(deque, new_len)
 
 
+def profile_module(callback, *args, **kwargs):
+    p = profile()
+    p.snapshot_stats()
+    p.enable()
+    callback(*args, **kwargs)
+    p.disable()
+    p.print_stats(2)
+    #p.dump_stats("handler.log")
+
+
 def request_handler(data):
     return data
 
 
 def stream_handler(sock, address):
-    TCPHandler(sock, address, request_handler)
+    if DEBUG:
+        profile_module(TCPHandler, sock, address, request_handler)
+    else:
+        TCPHandler(sock, address, request_handler)
 
 
 if __name__ == '__main__':

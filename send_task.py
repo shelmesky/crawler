@@ -156,13 +156,13 @@ def _double_prefix(deque):
     _merge_prefix(deque, new_len)
 
 
-if __name__ == '__main__':
+def run_test():
     client = SendTaskClient(host="127.0.0.1")
-    for i in range(2):
-        client.send_task("test content here")
-        body = client.recv_response()
-        print body
-        #import time
-        #time.sleep(10)
+    client.send_task("test content here")
+    body = client.recv_response()
+    print body
 
-
+if __name__ == '__main__':
+    workers = [gevent.spawn(run_test) for i in range(1000)]
+    gevent.joinall(workers)
+    
