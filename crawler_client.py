@@ -21,6 +21,45 @@ from pstats import Stats
 DEBUG = False
 
 
+class CrawlerClient(object):
+    @staticmethod
+    def get_data(hostname, method="GET", url=None, body=None):
+        conn = httplib.HTTPConnection(hostname)
+        headers = {"User-Agent": "curl 7.22.0"}
+        headers = {'Accept-Language':'zh-cn', \
+                  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.22 (KHTML, like Gecko) Ubuntu Chromium/25.0.1364.160 Chrome/25.0.1364.160 Safari/537.22'} 
+        conn.request(method, url + "?" + body, headers=headers)
+        data = conn.getresponse().read()
+        conn.close()
+        return data
+    
+    @staticmethod
+    def get_detail_page(keyword):
+        hostname, url, body = get_query_url(keyword)
+        data = get_data(hostname, url=url, body=body)
+        queue.put_nowait((keyword, data))
+
+
+class CalDealing(threading.Thread):
+    def __init__(self, queue):
+        super(CalDealing, self).__init__()
+        self.queue = queue
+    
+    def run(self):
+        i=1
+        while 1:
+            keyword, data = self.queue.get(True)
+            if keyword == None: break
+            i+=1
+            # dealing_total: 前40个商品的销售总量
+            # goods_amount: 每个关键词的宝贝总数
+            dealing_total = sum(map(int, regex_dealing.findall(data)))
+            goods_amount = regex_goods.findall(data)
+            goods_amount = goods_amount[0] if goods_amount else 0
+            #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = dealing_total
+            final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
+
+
 class IOStream(object):
     """
     为socket增加read_buffer和处理异常等

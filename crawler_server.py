@@ -1,6 +1,15 @@
 #!/usr/bin/python                                                                                                                                                                         
 #--encoding: utf-8--
 
+
+import gevent
+from gevent.pool import Pool
+from gevent import wsgi
+from gevent.event import Event
+from gevent import socket
+from gevent import monkey
+monkey.patch_all()
+
 import time                                                                                                                                                                               
 import re                                                                                                                                                                                 
 import httplib                                                                                                                                                                            
@@ -14,19 +23,12 @@ except ImportError:
 import threading
 import Queue
 
-import gevent
-from gevent import monkey
-from gevent.pool import Pool
-from gevent import wsgi
-from gevent.event import Event
-from gevent import socket
-
 from uuid import uuid4
 from prettytable import PrettyTable
+from send_task import SendTaskClient
 
 import server_settings
-
-monkey.patch_all()
+import client_settings
 
 import sys
 reload(sys)
@@ -43,16 +45,7 @@ regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb
 queue = Queue.Queue()
 running = False
 event_pool = dict()
-
-
-def create_conn(server, port):
-    sock = socket.create_connection((server,port), timeout=3)
-    return sock
-
-
-def send_task(sock, task):
-    task_length = len(task)
-    sock.sendall(task)
+self_weight = 1
 
 
 class EventManager(object):
@@ -80,6 +73,35 @@ class EventManager(object):
     @staticmethod
     def increment_count(ev_id):
         event_pool[ev_id]['count'] += 1
+
+
+def get_node_jobs(lists):
+    """
+    根据不同的权重，分割列表(不定长)
+    """
+    server_address = "127.0.0.1"
+    nodes = client_settings.nodes
+    nodes.append((server_address, self_weight))
+    total_weight = 0.0
+    for node in nodes:
+        total_weight += node[1]
+    
+    jobs_length = len(lists)
+    
+    node_jobs = list()
+    cursor = 0
+    process_first = 0
+    for node in nodes:
+        if node[1] != 0:
+            temp = {}
+            temp['address'] = node[0]
+            part = int(node[1] / total_weight * jobs_length)
+            temp['parts'] = lists[process_first if not process_first else cursor : cursor + part]
+            cursor = part
+            process_first = 1
+            node_jobs.append(temp)
+    
+    return node_jobs
 
 
 def get_random_obj(obj):
@@ -114,7 +136,8 @@ def get_query_url(query):
 
 
 def get_data(hostname, method="GET", url=None, body=None):
-    conn = httplib.HTTPConnection(hostname, source_address=(get_random_obj(ip_pool), 0))
+    #conn = httplib.HTTPConnection(hostname, source_address=(get_random_obj(ip_pool), 0))
+    conn = httplib.HTTPConnection(hostname)
     headers = {"User-Agent": "curl 7.22.0"}
     headers = {'Accept-Language':'zh-cn', \
               'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.22 (KHTML, like Gecko) Ubuntu Chromium/25.0.1364.160 Chrome/25.0.1364.160 Safari/537.22'} 
@@ -251,6 +274,8 @@ def main(main_keyword):
                 pool.join()
 
     queue.put((None, None))
+    
+    return
     ##########################################################
 
     end = time.time()
@@ -292,8 +317,6 @@ def main_app(env, start_response):
         start_response('200 OK', [('Content-Type', 'text/html')])
         
         return ["%s<br />%s<br />%s<br />%s<br /><pre>%s</pre>" % (tip1, tip2, tip3, tip4, t)]
-    elif path.startswith("/result"):
-        post_body = env['wsgi.input'].read()
     else:                                                                                                                  
         return not_found(start_response)
 
