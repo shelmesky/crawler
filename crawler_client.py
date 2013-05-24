@@ -8,17 +8,26 @@
 # HTTP的请求表单内容或者服务器返回内容当作请求主体
 
 import sys
+import re
 import errno
 import gevent
+from gevent import monkey
+monkey.patch_all()
+
+import urllib
+import httplib
 from gevent.server import StreamServer
-from gevent import httplib
 from collections import deque
 from gevent.pool import Pool
+from gevent.queue import Queue
 from gevent.timeout import Timeout
 from cProfile import Profile as profile
 from pstats import Stats
 
 DEBUG = False
+queue = Queue()
+regex_goods = re.compile('result-info">(\d+)')
+regex_dealing = re.compile('col\sdealing">\\xd7\\xee\\xbd\\xfc(.*)\\xc8\\xcb\\xb3\\xc9\\xbd\\xbb</div>')
 
 
 class CrawlerClient(object):
@@ -35,29 +44,47 @@ class CrawlerClient(object):
     
     @staticmethod
     def get_detail_page(keyword):
-        hostname, url, body = get_query_url(keyword)
-        data = get_data(hostname, url=url, body=body)
+        hostname, url, body = CrawlerClient.get_query_url(keyword)
+        data = CrawlerClient.get_data(hostname, url=url, body=body)
         queue.put_nowait((keyword, data))
-
-
-class CalDealing(threading.Thread):
-    def __init__(self, queue):
-        super(CalDealing, self).__init__()
-        self.queue = queue
     
-    def run(self):
-        i=1
-        while 1:
-            keyword, data = self.queue.get(True)
-            if keyword == None: break
-            i+=1
-            # dealing_total: 前40个商品的销售总量
-            # goods_amount: 每个关键词的宝贝总数
-            dealing_total = sum(map(int, regex_dealing.findall(data)))
-            goods_amount = regex_goods.findall(data)
-            goods_amount = goods_amount[0] if goods_amount else 0
-            #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = dealing_total
-            final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
+    @staticmethod
+    def decode_print(v):
+        try:
+            return v.decode('GBK').encode('UTF-8')
+        except:
+            return v.encode('UTF-8')
+
+    @staticmethod
+    def get_query_url(query):
+        parms = dict(
+            q = query,
+            commend = "all",
+            ssid = "s5-e",
+            search_type = "item",
+            sourceId = "tb.index",
+            initiative_id = "tbindexz_20130523"
+        )
+        hostname = "s.taobao.com"
+        url = "/search"
+        return hostname, url, urllib.urlencode(parms)
+
+
+def cal_dealing(queue):
+    i=1
+    final_dealing = {}
+    while 1:
+        keyword, data = queue.get(True)
+        if keyword == None: break
+        i+=1
+        # dealing_total: 前40个商品的销售总量
+        # goods_amount: 每个关键词的宝贝总数
+        dealing_total = sum(map(int, regex_dealing.findall(data)))
+        goods_amount = regex_goods.findall(data)
+        goods_amount = goods_amount[0] if goods_amount else 0
+        #final_dealing[str(i) + ":" + urllib.unquote(keyword)] = dealing_total
+        final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
+    return final_dealing
 
 
 class IOStream(object):
@@ -187,13 +214,14 @@ class TCPHandler(object):
         """
         处理消息主体
         """
+        response_body = self.callback(body)
+        
         response_headers ={}
-        body_length = len(body)
+        body_length = len(response_body)
         response_headers.setdefault("type", "response")
         response_headers.setdefault("content-length", body_length)
         response_headers = self.make_headers(response_headers)
         self.stream.write(response_headers)
-        response_body = self.callback(body)
         self.stream.write(response_body)
         self.clear()
     
@@ -274,7 +302,18 @@ def profile_module(callback, *args, **kwargs):
 
 
 def request_handler(data):
-    return data
+    cal_greenlet = gevent.spawn(cal_dealing, queue)
+    f = lambda i,s: [i[x:x+s] for x in xrange(0, len(i), s)]
+    split_size = 10
+    lists = [CrawlerClient.decode_print(i) for i in eval(data.decode('hex'))]
+    splited = f(lists, split_size)
+    results = []
+    for i in splited:
+        pool = Pool(split_size)
+        [pool.add(pool.spawn(CrawlerClient.get_detail_page, key)) for key in i]
+        pool.join()
+    
+    print cal_greenlet.get()
 
 
 def stream_handler(sock, address):

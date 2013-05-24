@@ -79,9 +79,7 @@ def get_node_jobs(lists):
     """
     根据不同的权重，分割列表(不定长)
     """
-    server_address = "127.0.0.1"
     nodes = client_settings.nodes
-    nodes.append((server_address, self_weight))
     total_weight = 0.0
     for node in nodes:
         total_weight += node[1]
@@ -128,7 +126,7 @@ def get_query_url(query):
         ssid = "s5-e",
         search_type = "item",
         sourceId = "tb.index",
-        initiative_id = "tbindexz_20130501"
+        initiative_id = "tbindexz_20130523"
     )
     hostname = "s.taobao.com"
     url = "/search"
@@ -218,6 +216,12 @@ class CalDealing(threading.Thread):
             final_dealing[urllib.unquote(keyword)] = (dealing_total, goods_amount)
 
 
+def send_task(address, parts):
+    client = SendTaskClient(address)
+    client.send_task(parts)
+    return client.recv_response()
+
+
 def main(main_keyword):
     running = True
     master_key = main_keyword
@@ -266,6 +270,18 @@ def main(main_keyword):
     ##########################################################
 
     random.shuffle(last_list)
+    node_jobs = get_node_jobs(last_list)
+    jobs = []
+    for node in node_jobs:
+        jobs.append(gevent.spawn(send_task, node['address'], str(node['parts']).encode('hex')))
+    
+    gevent.joinall(jobs)
+    
+    for job in jobs:
+        print job.value
+    
+    return
+
     splited = f(last_list, split_size)
 
     for i in splited:
@@ -275,7 +291,6 @@ def main(main_keyword):
 
     queue.put((None, None))
     
-    return
     ##########################################################
 
     end = time.time()
@@ -308,7 +323,9 @@ def main_app(env, start_response):
         if not keyword:
             return not_found(start_response)
         
-        count, last_list, times, t = main(keyword[0])
+        main(keyword[0])
+        return
+        #count, last_list, times, t = main(keyword[0])
         tip1 = "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (keyword, len(final_keywords.values()))
         tip2 = "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
         tip3 = "去除重复项后共 %s 个关键词" % len(last_list)
@@ -320,7 +337,13 @@ def main_app(env, start_response):
     else:                                                                                                                  
         return not_found(start_response)
 
-port = 8088
-print "Server listening on TCP:%s" % port
-wsgi.WSGIServer(('', port), main_app).serve_forever()
+if __name__ == '__main__':
+    port = 8088
+    print "WSGI Server listening on TCP: %s" % port
+    server = wsgi.WSGIServer(('', port), main_app)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print "Server exit..."
+        server.stop()
 

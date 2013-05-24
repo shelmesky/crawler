@@ -81,7 +81,7 @@ class SendTaskClient(object):
     def __init__(self, host=None, port=9001):
         self.host = host
         self.port = port
-        self.connect_timeout = 3
+        self.connect_timeout = 30
         sock = self.connect(self.host, self.port)
         self.stream = IOStream(sock)
     
