@@ -278,7 +278,7 @@ def main(main_keyword):
     gevent.joinall(jobs)
     
     for job in jobs:
-        print job.value
+        print job.value.decode('hex')
     
     return
 

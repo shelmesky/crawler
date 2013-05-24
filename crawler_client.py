@@ -12,8 +12,7 @@ import re
 import errno
 import gevent
 from gevent import monkey
-monkey.patch_all()
-
+monkey.patch_all() 
 import urllib
 import httplib
 from gevent.server import StreamServer
@@ -109,7 +108,7 @@ class IOStream(object):
         if not self.closed:
             try:
                 data = self.sock.recv(4096)
-            except error, e:
+            except Exception, e:
                 if e[0] == errno.ECONNRESET:
                     self.close()
                     return
@@ -216,6 +215,7 @@ class TCPHandler(object):
         """
         response_body = self.callback(body)
         
+        response_body = str(response_body).encode('hex')
         response_headers ={}
         body_length = len(response_body)
         response_headers.setdefault("type", "response")
@@ -313,7 +313,9 @@ def request_handler(data):
         [pool.add(pool.spawn(CrawlerClient.get_detail_page, key)) for key in i]
         pool.join()
     
-    print cal_greenlet.get()
+    queue.put((None, None))
+    result = cal_greenlet.get()
+    return result
 
 
 def stream_handler(sock, address):
