@@ -265,6 +265,7 @@ def main(main_keyword):
             last_list.append(i)
             count += 1
 
+    # 去除关键词的重复项
     last_list = {}.fromkeys(last_list).keys() 
 
     ##########################################################
@@ -276,27 +277,19 @@ def main(main_keyword):
         jobs.append(gevent.spawn(send_task, node['address'], str(node['parts']).encode('hex')))
     
     gevent.joinall(jobs)
+
+    final_dealing = {}
     
     for job in jobs:
-        print job.value.decode('hex')
-    
-    return
+        values = eval(job.value.decode('hex'))
+        for k,v in values.items():
+            final_dealing[k] = v
 
-    splited = f(last_list, split_size)
-
-    for i in splited:
-                pool = Pool(split_size)
-                [pool.add(pool.spawn(get_detail_page, key)) for key in i]
-                pool.join()
-
-    queue.put((None, None))
-    
     ##########################################################
 
     end = time.time()
     
-    global final_dealing
-    thread_dealing.join()
+    # 按照销量排序
     final_dealing = sorted(final_dealing.items(), key=lambda x: x[1][0], reverse=True)
     t = PrettyTable(["ID", "名称", "销售总量", "宝贝总量"])
     t.align[1] = 'l'
@@ -323,9 +316,7 @@ def main_app(env, start_response):
         if not keyword:
             return not_found(start_response)
         
-        main(keyword[0])
-        return
-        #count, last_list, times, t = main(keyword[0])
+        count, last_list, times, t = main(keyword[0])
         tip1 = "根据 %s 共得到 %s 个关键词(包括下拉列表和推荐)" % (keyword, len(final_keywords.values()))
         tip2 = "根据 %s 个关键词最终得到 %s 个关键词" % (len(final_keywords.values()), count)
         tip3 = "去除重复项后共 %s 个关键词" % len(last_list)
